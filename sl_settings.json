@@ -1,0 +1,18 @@
+{
+   "description": "I2C tool for reading/writing/scanning the I2C bus on Stratify OS.",
+   "github": "https://github.com/StratifyLabs/i2ctool",
+   "name": "i2ctool",
+   "permissions": "public",
+   "publisher": "Stratify Labs, Inc",
+   "tags": "utility",
+   "type": "app",
+   "uid": "7Z4mr0HQx2eKHHVSX3OYBCPWE5n1",
+   "version": "1.0",
+   "documentId": "2Cd5njdQwfvvxB1yJTK1",
+   "ramSize": 0,
+   "hardwareId": "",
+   "timestamp": 1549603733,
+   "buildList": {
+      "K70H40PLJPrdfNzog5j0": "1.0"
+   }
+}
