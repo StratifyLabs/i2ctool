@@ -7,12 +7,13 @@
    "tags": "utility",
    "type": "app",
    "uid": "7Z4mr0HQx2eKHHVSX3OYBCPWE5n1",
-   "version": "1.0",
+   "version": "1.1",
    "documentId": "2Cd5njdQwfvvxB1yJTK1",
    "ramSize": 0,
    "hardwareId": "",
-   "timestamp": 1549603733,
+   "timestamp": 1549652554,
    "buildList": {
-      "K70H40PLJPrdfNzog5j0": "1.0"
+      "K70H40PLJPrdfNzog5j0": "1.0",
+      "u8hMTeUcR3Op30MCuRFn": "1.1"
    }
 }

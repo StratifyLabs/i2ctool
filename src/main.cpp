@@ -52,13 +52,13 @@ int main(int argc, char * argv[]){
 	String nbytes;
 	String pullup;
 	String offset_width;
-	String i2c_port;
+	String port;
 	String map;
 	String frequency;
 	String sda;
 	String scl;
 
-	i2c_port = cli.get_option("i2c", "specify the i2c port to use such as 0|1|2 (default is 0)");
+	port = cli.get_option("port", "specify the i2c port to use such as 0|1|2 (default is 0)");
 	action = cli.get_option("action", "specify the action to perform scan|read|write");
 
 	slave_address = cli.get_option("address", "specify the slave address for read|write operations");
@@ -127,7 +127,7 @@ int main(int argc, char * argv[]){
 		options.attr.pin_assignment.scl = Pin::from_string(scl);
 	}
 
-	options.port = i2c_port.to_integer();
+	options.port = port.to_integer();
 	options.value = value.to_integer();
 	options.offset = offset.to_integer();
 	options.slave_addr = slave_address.to_long(16);
