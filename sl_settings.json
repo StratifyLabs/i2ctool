@@ -4,16 +4,18 @@
    "name": "i2ctool",
    "permissions": "public",
    "publisher": "Stratify Labs, Inc",
-   "tags": "utility",
+   "tags": "tool",
    "type": "app",
-   "uid": "7Z4mr0HQx2eKHHVSX3OYBCPWE5n1",
-   "version": "1.1",
+   "uid": "9cQyOTk3fZXOuMtPyf5j9X4H4b83",
+   "version": "1.2",
    "documentId": "2Cd5njdQwfvvxB1yJTK1",
    "ramSize": 0,
    "hardwareId": "",
-   "timestamp": 1549652554,
+   "timestamp": 1552190694,
    "buildList": {
       "K70H40PLJPrdfNzog5j0": "1.0",
-      "u8hMTeUcR3Op30MCuRFn": "1.1"
-   }
+      "u8hMTeUcR3Op30MCuRFn": "1.1",
+      "jxHltM9jlD87I571wDvb": "1.2"
+   },
+   "readme": "IyBpMmN0b29sClN0cmF0aWZ5IFRvb2xib3ggQXBwbGljYXRpb24gZm9yIGFjY2Vzc2luZyBJMkMgYnVzCn=="
 }
