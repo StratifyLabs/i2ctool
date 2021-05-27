@@ -1,27 +1,46 @@
-cmake_minimum_required (VERSION 3.6)
+#Copy this file to the application project folder as CMakeLists.txt
+cmake_minimum_required (VERSION 3.12)
 
-if( ${CMAKE_HOST_SYSTEM_NAME} STREQUAL "Darwin" )
-  set(SOS_TOOLCHAIN_CMAKE_PATH /Applications/StratifyLabs-SDK/Tools/gcc/arm-none-eabi/cmake)
-elseif( ${CMAKE_HOST_SYSTEM_NAME} STREQUAL "Windows" )
-  set(SOS_TOOLCHAIN_CMAKE_PATH C:/StratifyLabs-SDK/Tools/gcc/arm-none-eabi/lib/ldscripts)
-else()
-  message(FATAL_ERROR "Cross compiling is not yet supportd on: " ${CMAKE_HOST_SYSTEM_NAME})
+if(NOT SOS_SDK_PATH)
+	set(SOS_SDK_PATH $ENV{SOS_SDK_PATH})
 endif()
-set(CMAKE_TOOLCHAIN_FILE ${SOS_TOOLCHAIN_CMAKE_PATH}/sos-app-toolchain.cmake)
 
-include(${SOS_TOOLCHAIN_CMAKE_PATH}/sos-variables.cmake)
+set(CMAKE_MODULE_PATH ${SOS_SDK_PATH}/cmake)
+set(CMAKE_TOOLCHAIN_FILE ${CMAKE_MODULE_PATH}/sos-toolchain.cmake)
+include(sos-sdk)
 
-# This will set the default RAM used by the application
-set(SOS_RAM_SIZE 16384)
-
-#Add sources to the project
-set(SOURCES_PREFIX ${CMAKE_SOURCE_DIR}/src)
-add_subdirectory(src)
-list(APPEND SOS_SOURCELIST ${SOURCES})
-
-get_filename_component(SOS_NAME ${CMAKE_SOURCE_DIR} NAME)
+get_filename_component(SOS_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 project(${SOS_NAME} CXX C)
 
-message(STATUS "Building App sources: " ${SOS_SOURCELIST})
+include(StratifyOS)
+include (HalAPI)
 
-include(${SOS_TOOLCHAIN_CMAKE_PATH}/sos-app-std.cmake)
+# This will set the default RAM used by the application
+set(RAM_SIZE 16384)
+
+#Add sources to the project
+sos_sdk_add_subdirectory(SOS_SOURCELIST ${CMAKE_CURRENT_SOURCE_DIR}/src)
+list(
+	APPEND
+	SOS_SOURCELIST
+	${SOURCES}
+	${CMAKE_CURRENT_SOURCE_DIR}/sl_settings.json
+	${CMAKE_CURRENT_SOURCE_DIR}/README.md)
+
+sos_sdk_app_target(RELEASE ${SOS_NAME} "" release v7m)
+add_executable(${RELEASE_TARGET})
+target_sources(${RELEASE_TARGET}
+	PRIVATE
+	src/main.cpp)
+
+target_compile_options(${RELEASE_TARGET}
+	PRIVATE
+	-O3
+	)
+
+set_property(TARGET ${RELEASE_TARGET} PROPERTY CXX_STANDARD 17)
+
+
+set(DEPENDENCIES HalAPI VarAPI StratifyOS_crt)
+
+sos_sdk_app_add_arch_targets("${RELEASE_OPTIONS}" "${DEPENDENCIES}" ${RAM_SIZE})

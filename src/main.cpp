@@ -1,338 +1,212 @@
 
+#include <hal.hpp>
+#include <sys.hpp>
+#include <var.hpp>
+
 #include <stdarg.h>
 #include <stdio.h>
-#include <sapi/hal.hpp>
-#include <sapi/var.hpp>
-#include <sapi/sys.hpp>
-#include <sapi/fmt.hpp>
 
 #define PUBLISHER "Stratify Labs, Inc (C) 2018"
 
-static void show_usage(const Cli & cli);
+class Options : public api::ExecutionContext {
+public:
+  Options(const sys::Cli &cli) {
 
-typedef struct {
-	i2c_attr_t attr;
-	u8 port;
-	u8 slave_addr;
-	int action;
-	int offset;
-	int value;
-	int nbytes;
-	bool is_offset_16;
-	bool is_map;
-} options_t;
+    if (const auto a = cli.get_option("path", "I2C port e.g. `/dev/i2c0`");
+        a.is_empty() == false) {
+      set_path(a);
+    } else {
+      API_RETURN_ASSIGN_ERROR("path must be specified", EINVAL);
+    }
 
-static void scan_bus(const options_t & options);
-static void read_bus(const options_t & options);
-static void write_bus(const options_t & options);
+    if (const auto a =
+            cli.get_option("address", "I2C Slave Address (0x for hex)");
+        a.is_empty() == false) {
+      set_slave_addr(a.to_unsigned_long(StringView::Base::auto_));
+    }
 
-static void i2c_open(I2C & i2c, const options_t & options);
+    if (const auto a = cli.get_option("action", "use `scan|read|write`");
+        a.is_empty() == false) {
+      set_action(a);
+    } else {
+      API_RETURN_ASSIGN_ERROR("action must be specified", EINVAL);
+    }
 
-enum {
-	ACTION_SCAN,
-	ACTION_READ,
-	ACTION_WRITE,
-	ACTION_TOTAL
+    if ((action() != "scan") && (action() != "read") && (action() != "write")) {
+      API_RETURN_ASSIGN_ERROR("action must be `scan|read|write`", EINVAL);
+    }
+
+    if (const auto a = cli.get_option(
+            "offset", "set the register offset value when using read|write");
+        a.is_empty() == false) {
+      set_offset(a.to_unsigned_long(StringView::Base::auto_));
+    }
+
+    if (const auto a = cli.get_option(
+            "offset16", "specify the offset size as a 16-bit value");
+        a.is_empty() == false) {
+      set_offset_16(a == "true");
+    }
+
+    if (const auto a = cli.get_option("value", "value to write");
+        a.is_empty() == false) {
+      set_value(a.to_unsigned_long(StringView::Base::auto_));
+    }
+
+    if (const auto a = cli.get_option("size", "number of bytes to read");
+        a.is_empty() == false) {
+      set_size(a.to_unsigned_long(StringView::Base::auto_));
+    }
+
+    if (const auto a = cli.get_option("pullup", "use internal pullups");
+        a.is_empty() == false) {
+      set_pullup(a == "true");
+    }
+
+    if (const auto a = cli.get_option(
+            "map", "display the output of read as a C source code map");
+        a.is_empty() == false) {
+      set_map(a == "true");
+    }
+
+    if (const auto a = cli.get_option("frequency", "I2C bus frequency");
+        a.is_empty() == false) {
+      set_frequency(a.to_integer());
+    }
+  }
+
+private:
+  API_AF(Options, PathString, path, 0);
+  API_AF(Options, PathString, action, 0);
+  API_AF(Options, u8, slave_addr, 0);
+  API_AF(Options, int, offset, 0);
+  API_AF(Options, int, value, 0);
+  API_AF(Options, int, size, 0);
+  API_AF(Options, int, frequency, 100000);
+  API_AB(Options, pullup, false);
+  API_AB(Options, offset_16, false);
+  API_AB(Options, map, false);
 };
 
-int main(int argc, char * argv[]){
-	Cli cli(argc, argv);
-	cli.set_publisher(PUBLISHER);
+static void scan_bus(const Options &options);
+static void read_bus(const Options &options);
+static void write_bus(const Options &options);
+static void show_usage(const Cli &cli);
 
-	options_t options;
+int main(int argc, char *argv[]) {
+  Cli cli(argc, argv);
 
-	memset(&options, 0, sizeof(options));
-	memset(&options.attr.pin_assignment, 0xff, sizeof(i2c_pin_assignment_t));
+  if (cli.get_option("help") == "true") {
+    show_usage(cli);
+  }
 
-	String slave_address;
-	String action;
-	String offset;
-	String value;
-	String nbytes;
-	String pullup;
-	String offset_width;
-	String port;
-	String map;
-	String frequency;
-	String sda;
-	String scl;
+  const Options options(cli);
 
-	port = cli.get_option(
-				("port"),
-				Cli::Description("specify the i2c port to use such as 0|1|2 (default is 0)")
-				);
+  if (options.is_error()) {
+    printf("error: %s\n", options.error().message());
+    exit(0);
+  }
 
-	action = cli.get_option(
-				("action"),
-				Cli::Description("specify the action to perform scan|read|write")
-				);
+  if (options.action() == "scan") {
+    scan_bus(options);
+  } else if (options.action() == "read") {
+    printf("Read: %d bytes from 0x%X at %d\n", options.size(),
+           options.slave_addr(), options.offset());
+    read_bus(options);
+  } else if (options.action() == "write") {
+    write_bus(options);
+  }
 
-	slave_address = cli.get_option(
-				("address"),
-				Cli::Description("specify the slave address for read|write operations")
-				);
-
-	offset = cli.get_option(
-				("offset"),
-				Cli::Description("set the register offset value when using read|write")
-				);
-
-	value = cli.get_option(
-				("value"),
-				Cli::Description("specify the value when using write")
-				);
-
-	nbytes = cli.get_option(
-				("nbytes"),
-				Cli::Description("number of bytes when using read")
-				);
-
-	pullup = cli.get_option(
-				("pullup"),
-				Cli::Description("use internal pullups if available")
-				);
-
-	frequency = cli.get_option(
-				("frequency"),
-				Cli::Description("specify frequency in Hz (default is 100000)")
-				);
-
-	offset_width = cli.get_option(
-				("offset16"),
-				Cli::Description("specify the offset size as a 16-bit value")
-				);
-
-	map = cli.get_option(
-				("map"),
-				Cli::Description("display the output of read as a C source code map")
-				);
-
-	sda = cli.get_option(
-				("sda"),
-				Cli::Description("specify SDA pin as X.Y (default is to use system value)")
-				);
-
-	scl = cli.get_option(
-				("scl"),
-				Cli::Description("specify SCL pin as X.Y (default is to use system value)")
-				);
-
-	if( (cli.get_option(("--help")) == "true") ||
-		 (cli.get_option(("-h"))  == "true") ){
-		show_usage(cli);
-	}
-
-	bool is_slave_address_required = false;
-	bool is_value_required = false;
-	bool is_offset_required = false;
-
-	if( action == "scan" ){
-		options.action	= ACTION_SCAN;
-	} else if( action == "write" ){
-		options.action = ACTION_WRITE;
-		is_slave_address_required = true;
-		is_value_required = true;
-		is_offset_required = true;
-	} else if( action == "read" ){
-		options.action = ACTION_READ;
-		is_slave_address_required = true;
-		is_offset_required = true;
-	} else {
-		printf("error: specify action with --action=[read|write|scan]\n");
-		show_usage(cli);
-	}
-
-	if( offset.is_empty() && is_offset_required ){
-		printf("error: specify offset value with --offset=<value>\n");
-		show_usage(cli);
-	}
-
-	if( value.is_empty() && is_value_required ){
-		printf("error: specify write value with --value=<value>\n");
-		show_usage(cli);
-	}
-
-	if( slave_address.is_empty() && is_slave_address_required ){
-		printf("error: specify slave address with --address=<value>\n");
-		show_usage(cli);
-	}
-
-	options.attr.freq = frequency.to_integer();
-	if( options.attr.freq == 0 ){
-		options.attr.freq = 100000;
-	}
-
-	options.attr.o_flags = I2C::SET_MASTER;
-	if( pullup == "true" ){ options.attr.o_flags |= I2C::IS_PULLUP; }
-
-	if( sda.is_empty() == false ){
-		options.attr.pin_assignment.sda = Pin::from_string(sda);
-	}
-
-	if( scl.is_empty() == false ){
-		options.attr.pin_assignment.scl = Pin::from_string(scl);
-	}
-
-	options.port = port.to_integer();
-	options.value = value.to_integer();
-	options.offset = offset.to_integer();
-
-	options.slave_addr = slave_address.to_long(String::BASE_16);
-
-	options.nbytes = nbytes.to_integer();
-	if( options.nbytes == 0 && nbytes.is_empty() ){
-		options.nbytes = 1;
-	}
-	options.is_map = (map == "true");
-	options.is_offset_16 = (offset_width == "true");
-
-	printf("I2C Port:%d Bitrate:%ldbps PU:%d",
-			 options.port,
-			 options.attr.freq,
-			 (options.attr.o_flags & I2C::IS_PULLUP) != 0);
-
-	if( options.attr.pin_assignment.sda.port != 0xff ){
-		printf(" sda:%d.%d scl:%d.%d\n",
-				 options.attr.pin_assignment.sda.port,
-				 options.attr.pin_assignment.sda.pin,
-				 options.attr.pin_assignment.scl.port,
-				 options.attr.pin_assignment.scl.pin
-				 );
-	} else {
-		printf(" default pin assignment\n");
-	}
-
-	switch(options.action){
-		case ACTION_SCAN:
-			scan_bus(options);
-			break;
-		case ACTION_READ:
-			printf("Read: %d bytes from 0x%X at %d\n", options.nbytes, options.slave_addr, options.offset);
-			read_bus(options);
-			break;
-		case ACTION_WRITE:
-			printf("Write: %d to %d on 0x%X\n", options.value, options.offset, options.slave_addr);
-			write_bus(options);
-			break;
-		default:
-			show_usage(cli);
-			break;
-	}
-
-
-
-	return 0;
+  return 0;
 }
 
-void i2c_open(I2C & i2c, const options_t & options){
-	int result;
-	if( i2c.open(fs::OpenFlags::read_write()) < 0 ){
-		perror("Failed to open I2C port");
-		exit(1);
-	}
+void scan_bus(const Options &options) {
+  I2C i2c(options.path());
+  int i;
+  char c;
 
-	result = i2c.set_attributes(options.attr);
-	if( result < 0 ){
-		i2c.close();
-		perror(String().format("Failed to set I2C attributes (%d,%d)", result, i2c.error_number()).cstring());
-		exit(1);
-	}
+  i2c.set_attributes(
+      I2C::Attributes()
+          .set_flags(I2C::Flags::set_master |
+                     (options.is_pullup() ? I2C::Flags::is_pullup
+                                          : I2C::Flags::set_master))
+          .set_frequency(options.frequency()));
+
+  for (i = 0; i <= 127; i++) {
+    if (i % 16 == 0) {
+      printf("0x%02X:", i);
+    }
+    if (i != 0) {
+      const bool is_available = i2c.prepare(i, I2C::Flags::prepare_data)
+                                    .read(View(c))
+                                    .return_value() == 1;
+      i2c.reset_error();
+      if (is_available) {
+        printf("0x%02X ", i);
+      } else {
+        printf("____ ");
+      }
+    } else {
+      printf("____ ");
+    }
+    if (i % 16 == 15) {
+      printf("\n");
+    }
+  }
+
+  printf("\n");
 }
 
+void read_bus(const Options &options) {
+  I2C i2c(options.path());
+  int ret;
+  int i;
+  char buffer[options.size()];
+  View buffer_view(buffer, options.size());
 
-void scan_bus(const options_t & options){
-	I2C i2c(options.port);
-	int i;
-	char c;
+  i2c.prepare(options.slave_addr());
 
-	i2c_open(i2c, options);
+  printf("Read 0x%X %d %d\n", options.slave_addr(), options.offset(),
+         options.size());
+  i2c.seek(options.offset()).read(buffer_view);
+  if (i2c.is_success()) {
+    for (i = 0; i < ret; i++) {
 
-	for(i=0; i <= 127; i++){
-		if( i % 16 == 0 ){
-			printf("0x%02X:", i);
-		}
-		if( i != 0 ){
-			i2c.prepare(i, I2C::PREPARE_DATA);
-			if( i2c.read(c) == 1 ){
-				printf("0x%02X ", i);
-			} else {
-				printf("____ ");
-			}
-		} else {
-			printf("____ ");
-		}
-		if( i % 16 == 15 ){
-			printf("\n");
-		}
-	}
-
-	printf("\n");
-
-	i2c.close();
+      if (options.is_map()) {
+        printf("{ 0x%02X, 0x%02X },\n", i + options.offset(), buffer[i]);
+      } else {
+        printf("Reg[%03d or 0x%02X] = %03d or 0x%02X\n", i + options.offset(),
+               i + options.offset(), buffer[i], buffer[i]);
+      }
+    }
+  } else {
+    printf("Failed to read 0x%X (%d)\n", options.slave_addr(), i2c.get_error());
+  }
 }
 
-void read_bus(const options_t & options){
-	I2C i2c(options.port);
-	int ret;
-	int i;
-	char buffer[options.nbytes];
-	memset(buffer, 0, options.nbytes);
+void write_bus(const Options &options) {
+  I2C i2c(options.path());
 
-	i2c_open(i2c, options);
-	i2c.prepare(options.slave_addr);
+  i2c.prepare(options.slave_addr());
+  char output = options.value();
 
-	printf("Read 0x%X %d %d\n", options.slave_addr, options.offset, options.nbytes);
-	ret = i2c.read(
-				I2C::Location(options.offset),
-				buffer,
-				I2C::Size(options.nbytes)
-				);
-	if( ret > 0 ){
-		for(i=0; i < ret; i++){
-
-			if( options.is_map ){
-				printf("{ 0x%02X, 0x%02X },\n", i + options.offset, buffer[i]);
-			} else {
-				printf("Reg[%03d or 0x%02X] = %03d or 0x%02X\n",
-						 i + options.offset, i + options.offset,
-						 buffer[i], buffer[i]);
-			}
-		}
-	} else {
-		printf("Failed to read 0x%X (%d)\n", options.slave_addr, i2c.get_error());
-	}
-
-	i2c.close();
+  i2c.seek(options.offset()).write(View(output));
+  if (i2c.is_error()) {
+    printf("Failed to write 0x%X (%d)\n", options.slave_addr(),
+           i2c.get_error());
+  }
 }
 
-void write_bus(const options_t & options){
-	I2C i2c(options.port);
-	int ret;
+void show_usage(const Cli &cli) {
+  printf("usage: i2ctool --path=<i2c path> --action=[read|write|scan] "
+         "[options]\n");
+  printf("examples:\n");
+  printf("\tScan the specified bus: i2ctool --action=scan --i2c=0\n");
+  printf("\tRead 10 bytes from the specified offset: i2ctool --action=read "
+         "--i2c=1 --address=0x4C --offset=0 --nbytes=10\n");
+  printf("\tWrite to an I2C device: i2ctool --action=read --i2c=1 "
+         "--address=0x4C --offset=0 --value=5\n");
+  cli.show_help(Cli::ShowHelp());
 
-	i2c_open(i2c, options);
-	i2c.prepare(options.slave_addr);
-
-	ret = i2c.write(
-				I2C::Location(options.offset),
-				&options.value,
-				I2C::Size(1)
-				);
-	if( ret < 0 ){
-		printf("Failed to write 0x%X (%d)\n", options.slave_addr, i2c.get_error());
-	}
-
-	i2c.close();
+  exit(0);
 }
-
-
-void show_usage(const Cli & cli){
-	printf("usage: %s --i2c=<port> --action=[read|write|scan] [options]\n", cli.name().cstring());
-	printf("examples:\n");
-	printf("\tScan the specified bus: i2ctool --action=scan --i2c=0\n");
-	printf("\tRead 10 bytes from the specified offset: i2ctool --action=read --i2c=1 --address=0x4C --offset=0 --nbytes=10\n");
-	printf("\tWrite to an I2C device: i2ctool --action=read --i2c=1 --address=0x4C --offset=0 --value=5\n");
-	cli.show_options();
-
-	exit(0);
-}
-
